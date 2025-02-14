@@ -1,0 +1,496 @@
+in api.php routes
+
+
+<?php
+
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\API\PostController;
+use App\Http\Controllers\API\UserController;
+
+/*
+|--------------------------------------------------------------------------
+| API Routes
+|--------------------------------------------------------------------------
+|
+| Here is where you can register API routes for your application. These
+| routes are loaded by the RouteServiceProvider and all of them will
+| be assigned to the "api" middleware group. Make something great!
+|
+*/
+
+Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+    return $request->user();
+});
+
+Route::get('/user', function (Request $request) {
+    return $request->user();
+})->middleware('auth:sanctum');
+
+Route::prefix('v1')->group(function(){
+    Route::prefix('auth')->middleware('throttle:auth')->group(function(){
+        Route::post('register', [UserController::class, 'register']);
+        Route::post('login',    [UserController::class, 'login']);
+    });
+    
+    Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+        Route::post('logout', [UserController::class, 'logout']);
+        Route::apiResource('posts', PostController::class)->names('v1.posts');
+    });
+});
+
+Route::prefix('v2')->group(function(){
+    Route::apiResource('posts', PostController::class)->names('v2.posts');
+});
+
+
+
+
+
+
+in migrations files
+
+
+Schema::create('posts', function (Blueprint $table) {
+    $table->id();
+    $table->string('title');
+    $table->text('content');
+    $table->timestamps();
+});
+
+
+in factory files
+
+
+
+public function definition(): array
+{
+    return [
+        'title' => fake()->name(),
+        'content' => fake()->sentence(),
+    ];
+}
+
+
+
+in seeder
+
+Post::factory(10)->create();
+
+
+in models
+
+class Post extends Model
+{
+    use HasFactory;
+
+    public $fillable = [
+        'title',
+        'content',
+    ];
+}
+
+
+
+in controllers api 
+
+<?php
+
+namespace App\Http\Controllers\API;
+
+use App\Events\PostCreated;
+use App\Http\Controllers\Controller;
+use App\Http\Requests\StorePostRequest;
+use App\Http\Requests\UpdatePostRequest;
+use App\Http\Resources\PostResource;
+use App\Models\Post;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
+
+class PostController extends Controller
+{
+    protected $cacheDuration;
+
+    public function __construct()
+    {
+        $this->cacheDuration = env('CACHE_DURATION', 60);
+    }
+
+    public function index(){
+        $posts = Cache::remember('posts:all', $this->cacheDuration, function () {
+            return Post::paginate(10);
+        });
+        return PostResource::collection($posts);
+    }
+
+    public function show(Post $post){
+        $id = $post->id;
+        $post = Cache::remember('posts:'.$id, $this->cacheDuration, function()use($post){
+            return $post;
+        });
+        return new PostResource($post);
+    }
+
+    public function store(StorePostRequest $request){
+        $post = Post::create($request->validated());
+        Cache::forget('posts:all');
+        return new PostResource($post);
+    }
+
+    public function update(Post $post, UpdatePostRequest $request){
+        $post->update($request->validated()); 
+        $id = $post->id;
+        
+        Cache::forget("posts:$id");
+        Cache::forget("posts:all");
+
+        return new PostResource($post);
+    }
+
+    public function destroy(Post $post, Request $request){
+        $post->delete();
+        $id = $post->id;
+        Cache::forget("posts:$id");
+        Cache::forget("posts:all");
+        return response()->json([
+            'message' => 'Post deleted successfully'
+        ], 200); 
+    }
+}
+
+
+<?php
+
+namespace App\Http\Controllers\API;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\LoginRequest;
+use App\Http\Requests\RegisterRequest;
+use App\Http\Resources\UserResource;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+
+class UserController extends Controller
+{
+
+    public function register(RegisterRequest $request){
+        $user = User::create([
+            'name'     => $request->name,
+            'email'    => $request->email,
+            'password' => Hash::make($request->password),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User registered successfully.',
+            'data' => new UserResource($user),
+        ], 201);
+    }
+
+    public function login(LoginRequest $request){
+        if (!Auth::attempt($request->only('email', 'password'))) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Invalid credentials.',
+            ], 401);
+        }
+
+        $user = Auth::user();
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User logged in successfully.',
+            'data' => [
+                'user' => new UserResource($user),
+                'token' => $token,
+            ],
+        ]);
+
+    }
+
+    public function logout(Request $request){
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'User logged out successfully.',
+        ]);
+    }
+}
+
+
+in requests
+
+<?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
+
+class LoginRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return true; 
+    }
+
+    public function rules()
+    {
+        return [
+            'email' => 'required|string|email',
+            'password' => 'required|string',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'email.required' => 'The email field is required.',
+            'email.email' => 'The email must be a valid email address.',
+            'password.required' => 'The password field is required.',
+            'password.string' => 'The password must be a string.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors(),
+            ], JsonResponse::HTTP_UNPROCESSABLE_ENTITY)
+        );
+    }
+
+}
+
+
+
+
+<?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
+
+
+class RegisterRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules()
+    {
+        return [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'name.required' => 'The name field is required.',
+            'name.string' => 'The name must be a string.',
+            'name.max' => 'The name may not be greater than 255 characters.',
+            'email.required' => 'The email field is required.',
+            'email.email' => 'The email must be a valid email address.',
+            'email.max' => 'The email may not be greater than 255 characters.',
+            'email.unique' => 'The email has already been taken.',
+            'password.required' => 'The password field is required.',
+            'password.string' => 'The password must be a string.',
+            'password.min' => 'The password must be at least 8 characters.',
+            'password.confirmed' => 'The password confirmation does not match.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors(),
+            ], JsonResponse::HTTP_UNPROCESSABLE_ENTITY)
+        );
+    }
+
+}
+
+
+
+<?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
+
+class StorePostRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'title'   => 'required|string|max:255',
+            'content' => 'required|string',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'title.required' => 'The title field is required. Please provide a title.',
+            'title.string' => 'The title must be a string.',
+            'title.max' => 'The title may not be greater than 255 characters.',
+            'content.required' => 'The content field is required. Please provide some content.',
+            'content.string' => 'The content must be a string.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors(),
+            ], JsonResponse::HTTP_UNPROCESSABLE_ENTITY)
+        );
+    }
+
+}
+
+
+
+<?php
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Http\JsonResponse;
+
+class UpdatePostRequest extends FormRequest
+{
+    /**
+     * Determine if the user is authorized to make this request.
+     */
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Get the validation rules that apply to the request.
+     *
+     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'title'   => 'required|string|max:255',
+            'content' => 'required|string',
+        ];
+    }
+
+    public function messages()
+    {
+        return [
+            'title.required' => 'The title field is required. Please provide a title.',
+            'title.string' => 'The title must be a string.',
+            'title.max' => 'The title may not be greater than 255 characters.',
+            'content.required' => 'The content field is required. Please provide some content.',
+            'content.string' => 'The content must be a string.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'success' => false,
+                'message' => 'Validation errors',
+                'errors' => $validator->errors(),
+            ], JsonResponse::HTTP_UNPROCESSABLE_ENTITY)
+        );
+    }
+
+}
+
+
+
+and in resources
+
+
+class PostResource extends JsonResource
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        // return parent::toArray($request);
+        return [
+            'id'       => $this->id,
+            'title'    => $this->title,
+            'content'  => $this->content,
+        ];
+    }
+}
+
+
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class UserResource extends JsonResource
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        // return parent::toArray($request);
+        return [
+            'id'       => $this->id,
+            'name'     => $this->name,
+            'email'    => $this->email,
+        ];
+    }
+}

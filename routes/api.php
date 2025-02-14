@@ -2,6 +2,8 @@
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\API\PostController;
+use App\Http\Controllers\API\UserController;
 
 /*
 |--------------------------------------------------------------------------
@@ -16,4 +18,20 @@ use Illuminate\Support\Facades\Route;
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
+});
+
+Route::prefix('v1')->group(function(){
+    Route::prefix('auth')->middleware('throttle:auth')->group(function(){
+        Route::post('register', [UserController::class, 'register']);
+        Route::post('login',    [UserController::class, 'login']);
+    });
+    
+    Route::middleware(['auth:sanctum', 'throttle:api'])->group(function () {
+        Route::post('logout', [UserController::class, 'logout']);
+        Route::apiResource('posts', PostController::class)->names('v1.posts');
+    });
+});
+
+Route::prefix('v2')->group(function(){
+    Route::apiResource('posts', PostController::class)->names('v2.posts');
 });
