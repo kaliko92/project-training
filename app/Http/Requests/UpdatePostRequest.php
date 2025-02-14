@@ -27,6 +27,7 @@ class UpdatePostRequest extends FormRequest
         return [
             'title'   => 'required|string|max:255',
             'content' => 'required|string',
+            'user_id' => 'required|integer|exists:users,id',
         ];
     }
 
@@ -38,6 +39,8 @@ class UpdatePostRequest extends FormRequest
             'title.max' => 'The title may not be greater than 255 characters.',
             'content.required' => 'The content field is required. Please provide some content.',
             'content.string' => 'The content must be a string.',
+            'user_id.required' => 'The user_id field is required. Please provide a user_id.',
+            'user_id.exists' => 'The user_id field is not exist.',
         ];
     }
 

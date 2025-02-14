@@ -43,11 +43,14 @@ class PostTest extends TestCase
     // Test creating a post
     public function test_create_post()
     {
+        $user = User::factory()->create();        
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
         ])->postJson('http://localhost:8000/api/v1/posts', [
             'title' => 'Test Post',
             'content' => 'This is a test post.',
+            'user_id' => $user->id,
+
         ]);
 
         $response->assertStatus(201)
@@ -68,6 +71,7 @@ class PostTest extends TestCase
     public function test_fetch_single_post()
     {
         $post = Post::factory()->create();
+        // $user = User::factory()->create();        
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
@@ -79,6 +83,7 @@ class PostTest extends TestCase
                             'id' => $post->id,
                             'title' => $post->title,
                             'content' => $post->content,
+                            // 'user_id' => $user->id,
                         ],
                     ]);
     }
@@ -86,13 +91,16 @@ class PostTest extends TestCase
     // Test updating a post
     public function test_update_post()
     {
-        $post = Post::factory()->create();
+        $user = User::factory()->create();   
+        $this->token = $user->createToken('test-token')->plainTextToken;     
+        $post = Post::factory()->create(['user_id'=>$user->id]);
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
         ])->putJson('http://localhost:8000/api/v1/posts/' . $post->id, [
             'title' => 'Updated Title',
             'content' => 'Updated content.',
+            'user_id' => $user->id,
         ]);
 
         $response->assertStatus(200)
@@ -100,6 +108,7 @@ class PostTest extends TestCase
                         'data' => [
                             'title' => 'Updated Title',
                             'content' => 'Updated content.',
+                            'user_id' => $user->id,
                         ],
                     ]);
 
@@ -107,6 +116,7 @@ class PostTest extends TestCase
             'id' => $post->id,
             'title' => 'Updated Title',
             'content' => 'Updated content.',
+            'user_id' => $user->id,
         ]);
     }
 
@@ -114,6 +124,7 @@ class PostTest extends TestCase
     public function test_delete_post()
     {
         $post = Post::factory()->create();
+        $user = User::factory()->create();        
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
@@ -173,6 +184,9 @@ class PostTest extends TestCase
 
     public function test_cache_cleared_after_post_creation()
     {
+        $user = User::factory()->create();   
+        $this->token = $user->createToken('test-token')->plainTextToken;     
+
         // Fetch posts (should cache the response)
         $response1 = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
@@ -186,6 +200,7 @@ class PostTest extends TestCase
         ])->postJson('http://localhost:8000/api/v1/posts', [
             'title' => 'New Post',
             'content' => 'This is a new post.',
+            'user_id' => $user->id,
         ]);
 
         // Fetch posts again (should not return cached response)

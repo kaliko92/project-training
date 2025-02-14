@@ -9,7 +9,7 @@
             <directory suffix="Test.php">./tests/Unit</directory>
         </testsuite>
         <testsuite name="Feature">
-            <directory suffix="Test.php">./tests/Feature</directory>
+            <!-- <directory suffix="Test.php">./tests/Feature</directory> -->
             <file>./tests/Feature/UserTest.php</file>
             <file>./tests/Feature/PostTest.php</file>
         </testsuite>

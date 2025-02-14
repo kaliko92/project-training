@@ -42,6 +42,7 @@ class PostController extends Controller
     }
 
     public function update(Post $post, UpdatePostRequest $request){
+        // $this->authorize('update', $post);
         $post->update($request->validated()); 
         $id = $post->id;
         
@@ -52,6 +53,7 @@ class PostController extends Controller
     }
 
     public function destroy(Post $post, Request $request){
+        // $this->authorize('delete', $post);
         $post->delete();
         $id = $post->id;
         Cache::forget("posts:$id");
