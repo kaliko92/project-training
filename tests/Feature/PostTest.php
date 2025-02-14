@@ -50,14 +50,15 @@ class PostTest extends TestCase
             'title' => 'Test Post',
             'content' => 'This is a test post.',
             'user_id' => $user->id,
-
+            
         ]);
-
+        
         $response->assertStatus(201)
-                    ->assertJson([
+        ->assertJson([
                         'data' => [
                             'title' => 'Test Post',
                             'content' => 'This is a test post.',
+                            // 'user_id' => $user->id,
                         ],
                     ]);
 
@@ -70,8 +71,9 @@ class PostTest extends TestCase
     // Test fetching a single post
     public function test_fetch_single_post()
     {
-        $post = Post::factory()->create();
-        // $user = User::factory()->create();        
+        $user = User::factory()->create();   
+        $this->token = $user->createToken('test-token')->plainTextToken;     
+        $post = Post::factory()->create(['user_id'=>$user->id]);
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
@@ -83,7 +85,7 @@ class PostTest extends TestCase
                             'id' => $post->id,
                             'title' => $post->title,
                             'content' => $post->content,
-                            // 'user_id' => $user->id,
+                            'user_id' => $user->id,
                         ],
                     ]);
     }
@@ -123,8 +125,9 @@ class PostTest extends TestCase
     // Test deleting a post
     public function test_delete_post()
     {
-        $post = Post::factory()->create();
-        $user = User::factory()->create();        
+        $user = User::factory()->create();   
+        $this->token = $user->createToken('test-token')->plainTextToken;     
+        $post = Post::factory()->create(['user_id'=>$user->id]);
 
         $response = $this->withHeaders([
             'Authorization' => 'Bearer ' . $this->token,
@@ -233,4 +236,65 @@ class PostTest extends TestCase
         $response->assertStatus(200);
     }
 
+
+
+
+    public function test_user_can_update_their_own_post()
+    {
+        $user = User::factory()->create();   
+        $this->token = $user->createToken('test-token')->plainTextToken;     
+        $post = Post::factory()->create(['user_id'=>$user->id]);
+
+        $this->actingAs($user)
+                ->putJson("/api/v1/posts/{$post->id}", [
+                    'title' => 'Updated Title',
+                    'content' => 'Updated Content',
+                    'user_id' => $user->id,
+                ])
+                ->assertStatus(200)
+                ->assertJson([
+                    'data' => [
+                        'title' => 'Updated Title',
+                        'content' => 'Updated Content',
+                        'user_id' => $user->id,
+                    ],
+                ]);
+    }
+
+    public function test_user_cannot_update_another_users_post()
+    {
+        $user1 = User::factory()->create();
+        $user2 = User::factory()->create();
+        $post = Post::factory()->create(['user_id' => $user1->id]);
+
+        $this->actingAs($user2)
+                ->putJson("/api/v1/posts/{$post->id}", [
+                    'title' => 'Updated Title',
+                    'content' => 'Updated Content',
+                    'user_id' => $user1->id,
+                ])
+                ->assertStatus(403);
+    }
+
+    public function test_user_can_delete_their_own_post()
+    {
+        $user = User::factory()->create();
+        $post = Post::factory()->create(['user_id' => $user->id]);
+
+        $this->actingAs($user)
+                ->deleteJson("/api/v1/posts/{$post->id}")
+                ->assertStatus(200)
+                ->assertJson(['message' => 'Post deleted successfully']);
+    }
+
+    public function test_user_cannot_delete_another_users_post()
+    {
+        $user1 = User::factory()->create();
+        $user2 = User::factory()->create();
+        $post = Post::factory()->create(['user_id' => $user1->id]);
+
+        $this->actingAs($user2)
+                ->deleteJson("/api/v1/posts/{$post->id}")
+                ->assertStatus(403);
+    }
 }
