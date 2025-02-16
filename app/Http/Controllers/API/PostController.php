@@ -38,6 +38,7 @@ class PostController extends Controller
     public function store(StorePostRequest $request){
         $post = Post::create($request->validated());
         Cache::forget('posts:all');
+        broadcast(new PostCreated($post))->toOthers();
         return new PostResource($post);
     }
 
